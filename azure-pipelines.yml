@@ -1,0 +1,112 @@
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  dockerRegistryServiceConnection: 'YOUR_REGISTRY_CONNECTION'
+  imageRepository: 'simple-nodejs-app'
+  containerRegistry: 'yourregistry.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)'
+  tag: '$(Build.BuildId)'
+
+stages:
+  # Stage 1: Build Backend Docker Image
+  - stage: BuildBackend
+    displayName: Build Backend Docker Image
+    jobs:
+      - job: BuildBackendJob
+        displayName: Build Backend
+        steps:
+          - task: Docker@2
+            displayName: Build Backend Image
+            inputs:
+              command: build
+              repository: $(imageRepository)/backend
+              dockerfile: $(dockerfilePath)/backend/Dockerfile
+              containerRegistry: $(dockerRegistryServiceConnection)
+              tags: |
+                $(tag)
+                latest
+
+          - task: Docker@2
+            displayName: Push Backend Image
+            inputs:
+              command: push
+              repository: $(imageRepository)/backend
+              containerRegistry: $(dockerRegistryServiceConnection)
+              tags: |
+                $(tag)
+                latest
+
+  # Stage 2: Build Frontend Docker Image
+  - stage: BuildFrontend
+    displayName: Build Frontend Docker Image
+    dependsOn: []
+    jobs:
+      - job: BuildFrontendJob
+        displayName: Build Frontend
+        steps:
+          - task: Docker@2
+            displayName: Build Frontend Image
+            inputs:
+              command: build
+              repository: $(imageRepository)/frontend
+              dockerfile: $(dockerfilePath)/frontend/Dockerfile
+              containerRegistry: $(dockerRegistryServiceConnection)
+              tags: |
+                $(tag)
+                latest
+
+          - task: Docker@2
+            displayName: Push Frontend Image
+            inputs:
+              command: push
+              repository: $(imageRepository)/frontend
+              containerRegistry: $(dockerRegistryServiceConnection)
+              tags: |
+                $(tag)
+                latest
+
+  # Stage 3: Deploy to App Service
+  - stage: Deploy
+    displayName: Deploy to Azure App Service
+    dependsOn:
+      - BuildBackend
+      - BuildFrontend
+    condition: succeeded()
+    jobs:
+      # Deploy Backend
+      - deployment: DeployBackend
+        displayName: Deploy Backend to App Service
+        environment: Production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy Backend App Service
+                  inputs:
+                    azureSubscription: 'YOUR_AZURE_SUBSCRIPTION'
+                    appName: 'your-backend-app-name'
+                    containers: |
+                      $(containerRegistry)/$(imageRepository)/backend:$(tag)
+                    multiContainerConfigFile: ''
+
+      # Deploy Frontend
+      - deployment: DeployFrontend
+        displayName: Deploy Frontend to App Service
+        environment: Production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy Frontend App Service
+                  inputs:
+                    azureSubscription: 'YOUR_AZURE_SUBSCRIPTION'
+                    appName: 'your-frontend-app-name'
+                    containers: |
+                      $(containerRegistry)/$(imageRepository)/frontend:$(tag)
+                    multiContainerConfigFile: ''
